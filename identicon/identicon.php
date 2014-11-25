@@ -8,17 +8,11 @@ Author: Scott Sherrill-Mix
 Author URI: http://scott.sherrillmix.com/blog/
 */
 
-define('WP_IDENTICON_DIR',  str_replace('\\','/',preg_replace('@.*([\\\\/]wp-content[\\\\/].*)@','\1',dirname(__FILE__)).'/identicon/'));
-define('WP_IDENTICON_DIR_INTERNAL', dirname(__FILE__).'/identicon/');
+//define('IDENTICON_URL',  dirname(dirname(dirname($_SERVER['SCRIPT_NAME']))));
+define('IDENTICON_DIR', dirname(__FILE__).'/cache/identicon/');
 
 
-function identicon_menu() {
-	if (function_exists('add_options_page')) {
-		add_options_page('Identicon Control Panel', 'Identicon', 1, basename(__FILE__), 'identicon_subpanel');
-	}
-}
-
-class identicon {
+class IdentIcon {
 	var $identicon_options;
 	var $blocks;
 	var $shapes;
@@ -41,6 +35,10 @@ class identicon {
 	var $rotations;
 
 	//constructor
+        function __construct($blocks=''){
+          $this->identicon($blocks);
+        }
+
 	function identicon($blocks='') {
 		$this->identicon_options=identicon_get_options();
 		if ($blocks) $this->blocks=$blocks; 
@@ -195,10 +193,11 @@ class identicon {
 			// init random seed
 			if ($random) $id=substr(sha1($seed),0,10);
 			else $id=$seed;
-			$filename=substr(sha1($id.substr(get_option('admin_email'),0,5)),0,15).'.png';
+			$filename=substr(sha1($id),0,15).'.png';
 			if ($outsize=='') $outsize=$this->identicon_options['size'];
 			if($displaysize=='') $displaysize=$outsize;
-			if (!file_exists(WP_IDENTICON_DIR_INTERNAL.$filename)){
+                        $filepath = IDENTICON_DIR.md5($seed.$outsize.var_export($this->identicon_options, true)).'.png';
+			if (!file_exists($filepath)){
 				$this->im = imagecreatetruecolor($this->size,$this->size);	
 				$this->colors = array(imagecolorallocate($this->im, 255,255,255));
 				if ($random) $this->identicon_set_randomness($id);
@@ -216,21 +215,17 @@ class identicon {
 				imagecopyresampled($out,$this->im,0,0,0,0,$outsize,$outsize,$this->size,$this->size);
 				imagedestroy($this->im);
 				if ($write){
-						$wrote=imagepng($out,WP_IDENTICON_DIR_INTERNAL.$filename);
-						if(!$wrote) return false; //something went wrong but don't want to mess up blog layout
+				  $wrote=imagepng($out,$filepath);
+				  if(!$wrote) return false; //something went wrong but don't want to mess up blog layout
+                                  return $filepath;
 				}else{
-					header ("Content-type: image/png");
-					imagepng($out);
+				  header ("Content-type: image/png");
+				  imagepng($out);
 				}
 				imagedestroy($out);
+                                return true;
 			}
-			$filename=get_option('siteurl').WP_IDENTICON_DIR.$filename;
-			if($this->identicon_options['gravatar']&&$gravataron)
-        $filename = "http://www.gravatar.com/avatar.php?gravatar_id=".md5($seed)."&amp;size=$outsize&amp;default=$filename";
-			if ($img){
-				$filename='<img class="identicon" src="'.$filename.'" alt="'.str_replace('"',"'",$altImgText).' Identicon Icon" height="'.$displaysize.'" width="'.$displaysize.'" />';
-			}
-			return $filename;
+                        return $filepath;
 		} else { //php GD image manipulation is required
 			return false; //php GD image isn't installed but don't want to mess up blog layout
 		}
@@ -249,140 +244,6 @@ class identicon {
 	}
 }
 
-//create identicon for later use
-global $identicon;
-$identicon = new identicon;
-
-function identicon_get_options(){
-	$identicon_array=get_option('identicon');
-	if (!isset($identicon_array['size'])|!isset($identicon_array['backb'])){
-		//Set Default Values Here
-		$default_array=array('size'=>35,'backr'=>array(255,255),'backg'=>array(255,255),'backb'=>array(255,255), 'forer'=>array(1,255),'foreg'=>array(1,255),'foreb'=>array(1,255),'squares'=>4,'autoadd'=>1,'gravatar'=>0,'grey'=>0);
-		add_option('identicon',$default_array,'Options used by Identicon',false);
-		$identicon_array=$default_array;
-	}
-	return($identicon_array);
-}
-
-function identicon_subpanel() {
-	echo "<div class='wrap'>";
-	if (isset($_POST['submit'])) { //update the identicon size option
-		$identicon_options=identicon_get_options();
-		$identiconsize=intval($_POST['identiconsize']);
-		$identiconsquares=intval($_POST['identiconsquares']);
-		if ($identiconsize > 0 & $identiconsize < 400){
-			$identicon_options['size']=$identiconsize;
-		}else{
-			echo "<div class='error'><p>Please enter an integer for size. Preferably between 30-200.</p></div>";		
-		}
-		if ($identiconsquares > 0){
-			$identicon_options['squares']=$identiconsquares;
-		}else{
-			echo "<div class='error'><p>Please enter an integer for squares. Preferably 3 or greater and probably less than 10.".$identiconsquares.$_POST['identiconsquares']."</p></div>";		
-		}
-		foreach(array('backr','backg','backb','forer','foreg','foreb') as $color){//update background color options
-			$colorarray=explode('-',$_POST[$color]);
-			if (count($colorarray)==1){
-				$colorarray[1]=$colorarray[0];
-			}
-			$colorarray[0]=intval($colorarray[0]);
-			$colorarray[1]=intval($colorarray[1]);
-			if ($colorarray[0]>=0 & $colorarray[0]<256 & $colorarray[1]>=0 & $colorarray[1]<256){
-				$identicon_options[$color]=$colorarray;
-			}else{
-				echo "<div class='error'><p>Please enter a range between two integers for the background color (e.g. 230-255) between 1 and 255. For a single color please enter a single value (e.g. white = 255 for r,g and b).</p></div>";		
-			}
-		}
-		if ($_POST['autoadd'] == 0) $identicon_options['autoadd']=0;
-		elseif ($_POST['autoadd'] == 1) $identicon_options['autoadd']=1;
-		elseif ($_POST['autoadd'] == 2) $identicon_options['autoadd']=2;
-		if ($_POST['gravatar'] == 0) $identicon_options['gravatar']=0;
-		elseif ($_POST['gravatar'] == 1) $identicon_options['gravatar']=1;
-		if ($_POST['grey'] == 1) $identicon_options['grey']=1;
-		else $identicon_options['grey']=0;
-		update_option('identicon', $identicon_options);
-		echo "<div class='updated'><p>Options updated (you may have to clear the identicon cache to see any effect).</p></div>";
-	}elseif (isset($_POST['clear'])){ //clear the identicon cache
-		$dir=WP_IDENTICON_DIR_INTERNAL;
-		if ($dh = opendir($dir)) {
-			while (($file = readdir($dh)) !== false) {
-				if (is_file($dir.$file) and preg_match('/^.*\.png$/',$file)){
-					unlink($dir.$file);
-				}
-			}
-		closedir($dh);
-		echo "<div class='updated'><p>Cache cleared.</p></div>";		
-		}
-	}
-	$identicon_options=identicon_get_options();
-	//count file
-	$identicon_count=0;
-	$dir=WP_IDENTICON_DIR_INTERNAL;
-	if ($dh = opendir($dir)) {
-		while (($file = readdir($dh)) !== false) {
-			if (is_file($dir.$file) and preg_match('/^[a-f0-9]*\.png$/',$file)){
-				$identicon_count++;
-			}
-		}
-	}
-	?>
-	<div><p><strong>This is the Identicon options page.</strong></p>
-	<p>You currently have <?php echo $identicon_count;?> identicons on your website.</p>
-	</div>
-	<div class='wrap'>
-	<p>Set options here:</p>
-	<form method="post" action="options-general.php?page=wp_identicon.php">
-		<ul style="list-style-type: none">
-	<li><strong>Identicon Size in Pixels</strong> (Default: 35):<br /> 
-		<input type="text" name="identiconsize" value="<?php echo $identicon_options['size'];?>"/></li>
-	<li><strong>Number of Squares</strong> (Default: 4):<br /> 
-		<input type="text" name="identiconsquares" value="<?php echo $identicon_options['squares'];?>"/></li>
-	<?php if(!$identicon_options['grey']){
-		$gbtype="text";
-		$input_back=array('r'=>'style="background:#fee;"','g'=>'style="background:#efe;"','b'=>'style="background:#eef;"');
-		$input_detail=array('r'=>'R:','g'=>'G:','b'=>'B:');
-	}else{
-		$gbtype="hidden";
-		$input_back=array('r'=>'','g'=>'','b'=>'');
-		$input_detail=array('r'=>'Gray:','g'=>'','b'=>'');
-	}?>
-	<li><strong>Background Colors</strong> (enter single value or range. 0,0,0 for transparent. Default: 255,255,255):<br />
-	<?php echo $input_detail['r'];?><input type="text" name="backr" <?php echo $input_back['r'];?> value="<?php echo implode($identicon_options['backr'],'-');?>"/>
-	<?php echo $input_detail['g'];?><input type="<?php echo $gbtype;?>" name="backg" <?php echo $input_back['g'];?> value="<?php echo implode($identicon_options['backg'],'-');?>"/>
-	<?php echo $input_detail['b'];?><input type="<?php echo $gbtype;?>" name="backb" <?php echo $input_back['b'];?> value="<?php echo implode($identicon_options['backb'],'-');?>"/></li>
-	<li><strong>Foreground Colors</strong> (enter single value or range. Default: 1-255,1-255,1-255):<br/>
-	<?php echo $input_detail['r'];?><input type="text" name="forer" <?php echo $input_back['r'];?> value="<?php echo implode($identicon_options['forer'],'-');?>"/>
-	<?php echo $input_detail['g'];?><input type="<?php echo $gbtype;?>" name="foreg" <?php echo $input_back['g'];?> value="<?php echo implode($identicon_options['foreg'],'-');?>"/>
-	<?php echo $input_detail['b'];?><input type="<?php echo $gbtype;?>" name="foreb" <?php echo $input_back['b'];?> value="<?php echo implode($identicon_options['foreb'],'-');?>"/></li>
-	<li><strong>Grayscale</strong> (Good for black and white themes):<input type="checkbox" name="grey" value="1" <?php if ($identicon_options['grey']) echo 'checked="checked"';?> /></li>
-	<li><strong>Automatically Add Identicons to Comments</strong> (adds an Identicon beside commenter names or disable it and edit theme file manually) (default: Auto)<br /> <input type="radio" name="autoadd" value="0" <?php if (!$identicon_options['autoadd']) echo 'checked="checked"';?>/> I'll Do It Myself <input type="radio" name="autoadd" value="1" <?php if ($identicon_options['autoadd']==1) echo 'checked="checked"';?>/> Add Identicons For Me <input type="radio" name="autoadd" value="2" <?php if ($identicon_options['autoadd']==2) echo 'checked="checked"';?>/> My Theme Has Builtin WP2.5+ Avatars</li>
-	<li><strong>Gravatar Support</strong> (If a commenter has a gravatar use it, otherwise use Identicon) (default: Identicon Only)<br /> <input type="radio" name="gravatar" value="0" <?php if (!$identicon_options['gravatar']) echo 'checked="checked"';?>/> Identicon Only <input type="radio" name="gravatar" value="1" <?php if ($identicon_options['gravatar']) echo 'checked="checked"';?>/> Gravatar + Identicon</li>
-	<li><input type="submit" name="submit" value="Set Options"/></li>
-	</ul>
-	</form>
-	<form method="post" action="options-general.php?page=wp_identicon.php">
-	<ul style="list-style-type: none"><li>Clear the Identicon Image Cache: <input type="submit" name="clear" value="Clear Cache"/></li></ul>
-	</form>
-	</div>
-	<div class='wrap'><h4>To use Identicon:</h4> <p>Make sure the folder <code>wp-content/plugins/identicon</code> is writable. Identicons should automatically be added beside your commentors names after that. Enjoy.</p> 
-	<p>If you use the Recent Comments Widget in your sidebar, this plugin also provides a replacement Recent Comments (with Identicons) Widget to add Identicons to the sidebar comments (just set it in the Widgets Control Panel)</p>
-	<strong>Testing:</strong><br/>
-	<?php if (!is_writable(''.WP_IDENTICON_DIR_INTERNAL)){echo "<div class='error'><p>Identicon needs ".WP_IDENTICON_DIR_INTERNAL." to be writable.</p></div>";}
-	if (!function_exists("gd_info")){echo "<div class='error'><p>GD Image library not found. Identicon needs this library.</p></div>";}?>
-	<p>A test identicon should be here:<?php $identicon=new identicon; echo $identicon->identicon_build('This is a test','Test');?> and the source URL for this image is <a href="<?php echo $identicon->identicon_build('This is a test','Test',false);?>">here</a>.</p>
-	<p>If there is no identicon above or there are any other problems, concerns or suggestions please let me know <a href="http://scott.sherrillmix.com/blog/blogger/wp_identicon">here</a>. Enjoy your identicons.</p></div>
-	<div class="wrap"><p>For curiosity's sake, here are the parts the identicons are built from:</p><div class='wrap'>
-	<?php echo $identicon->identicon_display_parts();?>
-	</div>
-	<h4>For advanced users:</h4> <p>Disable the automatic Indenticon placement and put: <br/> <code><?php echo htmlspecialchars('<?php if (function_exists("identicon_build")) {echo identicon_build($comment->comment_author_email,$comment->comment_author); } ?>');?></code><br/> in the comment loop of your theme comment script (probably <code>comments.php</code>). Or if you're more confident and just want the img URL use:
-	<code><?php echo htmlspecialchars('<?php if (function_exists("identicon_build")) {echo identicon_build($comment->comment_author_email,$comment->comment_author,false); } ?>');?></code></p>
-	<p>Please see the <a href="http://scott.sherrillmix.com/blog/blogger/wp_identicon/">plugin page</a> if you need more details.</p></div>
-	
-
-	<div><p>The idea for Identicons came from <a href="http://www.docuverse.com/blog/donpark/2007/01/18/visual-security-9-block-ip-identification">Don Park</a>.</p></div>
-	</div>
-	<?php	
-}
 
 
 class identicon_mersenne_twister{
@@ -393,34 +254,35 @@ class identicon_mersenne_twister{
  var $i;
  // Initialise the generator from a seed
  function identicon_mersenne_twister ($seed=123456) {
-     $this->MT[0] = $seed;
-		 $this->i=1;
-     for ($i=1;$i<624;$i++) { // loop over each other element
-         $this->MT[$i] = $this->mysql_math('(1812433253 * ('.$this->MT[$i-1].' ^ ('.$this->MT[$i-1]." >> 30)) + $i) & 0xffffffff");
-     }
-		 $this->generateNumbers();
+     mt_srand($seed);
+     //-- $this->MT[0] = $seed;
+     //--    	 $this->i=1;
+     //-- for ($i=1;$i<624;$i++) { // loop over each other element
+     //--     $this->MT[$i] = $this->mysql_math('(1812433253 * ('.$this->MT[$i-1].' ^ ('.$this->MT[$i-1]." >> 30)) + $i) & 0xffffffff");
+     //-- }
+     //--    	 $this->generateNumbers();
  }
 
-	//(some) PHP integers don't have enough bits for Mersenne Twister so use mysql
-	function mysql_math($equation){
-		global $wpdb;
-		$query="SELECT ".$equation;
-		$answer=$wpdb->get_var($query);
-		return $answer;
-	}
-
- // Generate an array of 624 untempered numbers
- function generateNumbers() {
-     for ($i=0;$i<624;$i++) {
-         $y = $this->mysql_math('('.$this->MT[$i].' & 0x7fffffff) + ('.$this->MT[($i+1)%624].' & 0xfffffffe)');
-				 $even=$this->mysql_math($y.' ^ 0x00000001');
-         if ($even) {
-             $this->MT[$i] = $this->mysql_math($this->MT[($i + 397) % 624]." ^ ($y >> 1)");
-         } else {
-             $this->MT[$i] = $this->mysql_math($this->MT[($i + 397) % 624]." ^ ($y >>1) ^ (2567483615)"); // 0x9908b0df
-         }
-     }
- }
+//--	//(some) PHP integers don't have enough bits for Mersenne Twister so use mysql
+//--	function mysql_math($equation){
+//--		global $wpdb;
+//--		$query="SELECT ".$equation;
+//--		$answer=$wpdb->get_var($query);
+//--		return $answer;
+//--	}
+//--
+//-- // Generate an array of 624 untempered numbers
+//-- function generateNumbers() {
+//--     for ($i=0;$i<624;$i++) {
+//--         $y = $this->mysql_math('('.$this->MT[$i].' & 0x7fffffff) + ('.$this->MT[($i+1)%624].' & 0xfffffffe)');
+//--				 $even=$this->mysql_math($y.' ^ 0x00000001');
+//--         if ($even) {
+//--             $this->MT[$i] = $this->mysql_math($this->MT[($i + 397) % 624]." ^ ($y >> 1)");
+//--         } else {
+//--             $this->MT[$i] = $this->mysql_math($this->MT[($i + 397) % 624]." ^ ($y >>1) ^ (2567483615)"); // 0x9908b0df
+//--         }
+//--     }
+//-- }
  
  // Extract a tempered pseudorandom number based on the i-th value
  // generateNumbers() will have to be called again once the array of 624 numbers is exhausted
@@ -432,163 +294,41 @@ class identicon_mersenne_twister{
  }
 
 	function rand($low,$high){
-		$pick=floor($low+($high-$low+1)*$this->extractNumber());
-		return ($pick);
+           return mt_rand($low,$high);
+	   //$pick=floor($low+($high-$low+1)*$this->extractNumber());
+	   //return ($pick);
 	}
 	function array_rand($array){
 		return($this->rand(0,count($array)-1));
 	}
 }
 
-
-function identicon_comment_author($output){
-		global $comment;
-		global $identicon;
-		$identicon_options=identicon_get_options();
-		if((is_page () || is_single ()) && $identicon_options['autoadd']==1 && $comment->comment_type!="pingback"&&$comment->comment_type!="trackback" && isset($comment->comment_karma)){ //assuming sidebar widgets won't check comment karma (and single page comments will)
-			if (isset($identicon)) $output=$identicon->identicon_build($comment->comment_author_email,$comment->comment_author).' '.$output; 
-		}
-		return $output;
+function identicon_get_options(){
+  $identicon_array = $default_array=array('size'=>48,'backr'=>array(255,255),'backg'=>array(255,255),'backb'=>array(255,255), 'forer'=>array(1,255),'foreg'=>array(1,255),'foreb'=>array(1,255),'squares'=>4,'autoadd'=>1,'gravatar'=>0,'grey'=>0);
+  return($identicon_array);
 }
 
-function identicon_build($seed='',$altImgText='',$img=true,$outsize='',$write=true,$random=true,$displaysize='',$gravataron=true){
-	global $identicon;
-	return $identicon->identicon_build($seed,$altImgText,$img,$outsize,$write,$random,$displaysize,$gravataron);
-}
 
-function identicon_get_avatar($avatar, $id_or_email, $size, $default){
-	global $identicon;
-	if(!isset($identicon)) return $avatar;
-	$email = '';
-	if ( is_numeric($id_or_email) ) {
-		$id = (int) $id_or_email;
-		$user = get_userdata($id);
-		if ( $user )
-			$email = $user->user_email;
-	} elseif ( is_object($id_or_email) ) {
-		if ( !empty($id_or_email->user_id) ) {
-			$id = (int) $id_or_email->user_id;
-			$user = get_userdata($id);
-			if ( $user)
-				$email = $user->user_email;
-		} elseif ( !empty($id_or_email->comment_author_email) ) {
-			$email = $id_or_email->comment_author_email;
-		}
-	} else {
-		$email = $id_or_email;
-	}
 
-	if(!$avatar) return identicon_build($email,'','',true,$size);
-	if(!$identicon->identicon_options['gravatar']){
-		$identiconurl=identicon_build($email,'',false);
-		$newavatar=preg_replace('@src=(["\'])http://[^"\']+["\']@','src=\1'.$identiconurl.'\1',$avatar);
-		$avatar=$newavatar;
-	}elseif($identicon->identicon_options['gravatar']==1){
-		$identiconurl=identicon_build($email,'',false,'',true,true,$size,false);
-		if(strpos($avatar,'default=http://')!==false){
-			$newavatar=preg_replace('@default=http://[^&\'"]+([&\'"])@','default='.urlencode($identiconurl).'\1',$avatar);
-		}else{
-			$newavatar=preg_replace('@(src=(["\'])http://[^?]+\?)@','\1default='.urlencode($identiconurl).'&amp;',$avatar);
-		}
-		$avatar=$newavatar;
-	}
-	return($avatar);
-}
+//================================================================================//
+// main                                                                           //
+//================================================================================//
 
-//Hooks
-add_action('admin_menu', 'identicon_menu');
-add_filter('get_comment_author','identicon_comment_author');
-if($wp_version>=2.5&&$identicon->identicon_options['autoadd']==2){
-	add_filter('get_avatar','identicon_get_avatar',5,4);
-}
+#1
+$seed        = $_GET['seed'];
+$outsize     = $_GET['size'];
 
-//Widget stuff 
-//Wordpress's default widget doesn't get commenter email so we can't use it for identicons
-//Copying their widget with some search and replace with identicon
-function identicon_recent_comments($args) {
-	global $wpdb, $comments, $comment, $identicon;
-	extract($args, EXTR_SKIP);
-	$options = get_option('widget_identicon_recent_comments');
-	$title = empty($options['title']) ? __('Recent Comments') : $options['title'];
-	if ( !$number = (int) $options['number'] )
-		$number = 5;
-	else if ( $number < 1 )
-		$number = 1;
-	else if ( $number > 15 )
-		$number = 15;
-	if ( !$size = (int) $options['identicon_size'] )
-		$size = 10;
-	else if ( $size < 1 )
-		$size=1;
-	else if($size > 50)
-		$size=50;
-	if ( !$comments = wp_cache_get( 'identicon_recent_comments', 'widget' ) ) {
-		$comments = $wpdb->get_results("SELECT comment_author, comment_author_url, comment_ID, comment_post_ID, comment_author_email, comment_type FROM $wpdb->comments WHERE comment_approved = '1' ORDER BY comment_date_gmt DESC LIMIT $number");
-		wp_cache_add( 'identicon_recent_comments', $comments, 'widget' );
-	}
-?>
+#2
+list($seed,$outsize) = explode('/',$_GET['@params'].'/');
 
-		<?php echo $before_widget; ?>
-			<?php echo $before_title . $title . $after_title; ?>
-			<ul id="identicon_recentcomments"><?php
-			if ( $comments ) : foreach ($comments as $comment) :
-				echo  '<li class="recentcomments">';
-				if($comment->comment_type!="pingback"&&$comment->comment_type!="trackback"&&isset($identicon))
-					echo $identicon->identicon_build($comment->comment_author_email,$comment->comment_author,TRUE,'',TRUE,TRUE,$size).' ';
-				echo sprintf(__('%1$s on %2$s'), get_comment_author_link(), '<a href="'. get_permalink($comment->comment_post_ID) . '#comment-' . $comment->comment_ID . '">' . get_the_title($comment->comment_post_ID) . '</a>') . '</li>';
-			endforeach; endif;?></ul>
-		<?php echo $after_widget; ?>
-<?php
-}
+#3
+list($seed,$outsize) = explode('/', trim($_SERVER['PATH_INFO'], '/').'/');
 
-function wp_delete_identicon_recent_comments_cache() {
-	wp_cache_delete( 'identicon_recent_comments', 'widget' );
-}
+$outsize = intval($outsize);
 
-function identicon_recent_comments_control() {
-	$options = $newoptions = get_option('widget_identicon_recent_comments');
-	if ( $_POST["identicon_recent-comments-submit"] ) {
-		$newoptions['title'] = strip_tags(stripslashes($_POST["identicon_recent-comments-title"]));
-		$newoptions['number'] = (int) $_POST["identicon_recent-comments-number"];
-		$newoptions['identicon_size'] = (int) $_POST["identicon_size"];
-	}
-	if ( $options != $newoptions ) {
-		$options = $newoptions;
-		update_option('widget_identicon_recent_comments', $options);
-		wp_delete_identicon_recent_comments_cache();
-	}
-	$title = attribute_escape($options['title']);
-	if ( !$number = (int) $options['number'] )
-		$number = 5;
-	if ( !$size = (int) $options['identicon_size'] )
-		$size = 10;
-?>
-			<p><label for="identicon_recent-comments-title"><?php _e('Title:'); ?> <input style="width: 250px;" id="identicon_recent-comments-title" name="identicon_recent-comments-title" type="text" value="<?php echo $title; ?>" /></label></p>
-			<p><label for="identicon_recent-comments-number"><?php _e('Number of comments to show:'); ?> <input style="width: 25px; text-align: center;" id="identicon_recent-comments-number" name="identicon_recent-comments-number" type="text" value="<?php echo $number; ?>" /></label> <?php _e('(at most 15)'); ?></p>
-			<p><label for="identicon_size"><?php _e('Size of Widget Identicons (pixels):'); ?> <input style="width: 25px; text-align: center;" id="identicon_size" name="identicon_size" type="text" value="<?php echo $size; ?>" /></label></p>
-			<input type="hidden" id="identicon_recent-comments-submit" name="identicon_recent-comments-submit" value="1" />
-<?php
-}
+$identicon = new IdentIcon();
+$file = $identicon->identicon_build($seed, $altImgText='avatar', $img=true, $outsize, $write=true, $random=true, $displaysize='', $gravataron=false);
 
-function identicon_recent_comments_style() {
-?>
-<style type="text/css">
-	ul#identicon_recentcomments{list-style:none;} 
-	ul#identicon_recentcomments li.recentcomments:before{content:"";}
-	ul#identicon_recentcomments img.identicon{vertical-align:middle;}
-	.recentcomments a{display:inline !important;padding: 0 !important;margin: 0 !important;}
-</style>
-<?php
-}
-
-function identicon_recent_comments_widget_init(){
-	register_sidebar_widget('Recent Comments (with Identicons)', 'identicon_recent_comments');
-	register_widget_control('Recent Comments (with Identicons)', 'identicon_recent_comments_control', 320, 90);
-	if ( is_active_widget('identicon_recent_comments') )
-		add_action('wp_head', 'identicon_recent_comments_style');
-	add_action( 'comment_post', 'wp_delete_identicon_recent_comments_cache' );
-	add_action( 'wp_set_comment_status', 'wp_delete_identicon_recent_comments_cache' );
-}
-
-add_action('widgets_init', 'identicon_recent_comments_widget_init');
-?>
+# Output
+header ("Content-type: image/png");
+readfile($file);
